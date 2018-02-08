@@ -21,7 +21,7 @@
 #define WEBCOMMANDNOTHING 3
 
 // ===== CONSTANTS
-const char ssid[]  = WIFI_SSID;  // assigned by a platformio build flag via an environment variable
+const char ssid[]  = WIFI_SSID;  // assigned by the PLATFORMIO_BUILD_FLAGS environment variable
 const char password[] = WIFI_PASS;  // ----"-----
 
 const int controlRelaysInterval = 100; // Acts quickly enough for http commands, but also debounces signal.
@@ -91,9 +91,11 @@ void setup() {
   });
 
   myHTTPserver.on("/", HTTP_GET, handleRoot); // Call the 'handleRoot' function when a client requests URI "/"
-  myHTTPserver.on("/LED", HTTP_POST, handleLED); // Call the 'handleLED' function when a POST request is made to URI "/LED"
+  myHTTPserver.on("/LED", HTTP_ANY, handleLED); // Call the 'handleLED' function when any request is made to URI "/LED"
+  myHTTPserver.on("/SCREEN=UP", HTTP_ANY, handleScreenUp); // Call the 'handleScreenUp' function when any request is made to URI "/SCREEN=UP"
+  myHTTPserver.on("/SCREEN=STOP", HTTP_ANY, handleScreenStop); // Call the 'handleScreenStop' function when any request is made to URI "/SCREEN=STOP"
+  myHTTPserver.on("/SCREEN=DOWN", HTTP_ANY, handleScreenDown); // Call the 'handleScreenDown' function when any request is made to URI "/SCREEN=DOWN"
   myHTTPserver.onNotFound(handleNotFound); // When a client requests an unknown URI, call function "handleNotFound"
-
   
   Serial.println(String("Ready to connect using IP address: ") + WiFi.localIP());
   
@@ -109,7 +111,7 @@ void loop() {
   currentMillis = millis();
 
   controlRelays();
-  myHTTPserver.handleClient(); // Listen for HTTP requests from clients
+  updateWebServer();
   serviceOTA();
   
 }  // End of MAIN LOOP function
@@ -137,12 +139,37 @@ void controlRelays() {
 }  // END OF CONTROLRELAYS function
 
 void handleRoot() { // When URI / is requested, send a web page with a button to toggle the LED
-  myHTTPserver.send(200, "text/html", "<form action=\"/LED\" method=\"POST\"><input type=\"submit\" value=\"Toggle LED\"></form>");
+  myHTTPserver.send(200, "text/html", "<h1>Sonoff Dual R2 Projector Screen Controller</h1>"
+  "<p>MAC address: " + WiFi.macAddress() + "</p>"
+  "<p>Free Heap RAM: " + ESP.getFreeHeap() + "</p>"
+  "<form action=\"/SCREEN=UP\" method=\"POST\"><input type=\"submit\" value=\"Screen Up\"></form>"
+  "<form action=\"/SCREEN=STOP\" method=\"POST\"><input type=\"submit\" value=\"Screen STOP\"></form>"
+  "<form action=\"/SCREEN=DOWN\" method=\"POST\"><input type=\"submit\" value=\"Screen Down\"></form>"
+  "<form action=\"/LED\" method=\"POST\"><input type=\"submit\" value=\"Toggle LED\"></form>");
+  webCommand = WEBCOMMANDNOTHING; // The default
 }
 
 void handleLED() { // If a POST request is made to URI /LED
   ledState = !ledState;
   digitalWrite(LEDPIN, ledState);  // Flash LED
+  myHTTPserver.sendHeader("Location","/"); // Add a header to respond with a new location for the browser to go to the home page again
+  myHTTPserver.send(303); // Send it back to the browser with an HTTP status 303 (See Other) to redirect
+}
+
+void handleScreenUp() { // If a POST request is made to URI /SCREEN=UP
+  webCommand = WEBCOMMANDUP;
+  myHTTPserver.sendHeader("Location","/"); // Add a header to respond with a new location for the browser to go to the home page again
+  myHTTPserver.send(303); // Send it back to the browser with an HTTP status 303 (See Other) to redirect
+}
+
+void handleScreenStop() { // If a POST request is made to URI /SCREEN=STOP
+  webCommand = WEBCOMMANDSTOP;
+  myHTTPserver.sendHeader("Location","/"); // Add a header to respond with a new location for the browser to go to the home page again
+  myHTTPserver.send(303); // Send it back to the browser with an HTTP status 303 (See Other) to redirect
+}
+
+void handleScreenDown() { // If a POST request is made to URI /SCREEN=DOWN
+  webCommand = WEBCOMMANDDOWN;
   myHTTPserver.sendHeader("Location","/"); // Add a header to respond with a new location for the browser to go to the home page again
   myHTTPserver.send(303); // Send it back to the browser with an HTTP status 303 (See Other) to redirect
 }
@@ -153,8 +180,9 @@ void handleNotFound(){
 
 void updateWebServer() {
   if (currentMillis - webServerPreviousMillis >= webServerInterval) {  // Time to do the task
-    WiFiClient client = myHTTPserver.available();  // Get a web browsing client that has data available for reading.
-    if (client) {                        // Yes, someone is there
+    myHTTPserver.handleClient(); // Listen for HTTP requests from clients
+    
+/*     if (client) {                        // Yes, someone is there
       Serial.println(String("At: ") + currentMillis + " mS    Posting to browser");
                   
       client.println("HTTP/1.1 200 OK");
@@ -164,7 +192,7 @@ void updateWebServer() {
       client.println(""); //  do not forget this one
       client.println("<!DOCTYPE HTML>");
       client.println("<html>");
-      client.println("PlatformIO-built on 2018-02-03<br />");
+      client.println("PlatformIO-built on 2018-02-08<br />");
       client.println(String("Free Heap RAM: ") + ESP.getFreeHeap() + "<br />");
       client.println(String("MAC address: ") + WiFi.macAddress() + "<br />");
 
@@ -207,8 +235,8 @@ void updateWebServer() {
         }
       }
       client.stop();  // client no longer connected
-    }
-
+     }
+ */
     webServerPreviousMillis += webServerInterval;
   }  // End of time to do the task
 }  // End of UpdateWebServer function
