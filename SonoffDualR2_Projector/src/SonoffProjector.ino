@@ -1,5 +1,6 @@
 // ===== LIBRARIES
 #include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>           // easier than using WebServer, apparently
 #include <ESP8266mDNS.h>                // for OTA updates
 #include <WiFiUdp.h>                    // for OTA updates
 #include <ArduinoOTA.h>                 // for OTA updates
@@ -20,8 +21,8 @@
 #define WEBCOMMANDNOTHING 3
 
 // ===== CONSTANTS
-const char ssid[]  = WIFI_SSID; // from PLATFORMIO_BUILD_FLAGS environment variable
-const char password[] = WIFI_PASS; // ---"---
+const char ssid[]  = WIFI_SSID;  // assigned by a platformio build flag via an environment variable
+const char password[] = WIFI_PASS;  // ----"-----
 
 const int controlRelaysInterval = 100; // Acts quickly enough for http commands, but also debounces signal.
 const int OTAInterval = 500; // Handle OTA reflashing twice a second
@@ -36,7 +37,7 @@ unsigned long webServerPreviousMillis = 0;   // will store last time web page wa
 byte ledState = LOW;  // for toggling the LED
 int webCommand = WEBCOMMANDNOTHING;    // command from http
 
-WiFiServer myHTTPserver(80);
+ESP8266WebServer myHTTPserver(80);  // Create a webserver object that listens for HTTP request on port 80
 // WiFiClient thingspeakClient;
 
 // ===== SETUP FUNCTION
@@ -88,6 +89,11 @@ void setup() {
     else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
     else if (error == OTA_END_ERROR) Serial.println("End Failed");
   });
+
+  myHTTPserver.on("/", HTTP_GET, handleRoot); // Call the 'handleRoot' function when a client requests URI "/"
+  myHTTPserver.on("/LED", HTTP_POST, handleLED); // Call the 'handleLED' function when a POST request is made to URI "/LED"
+  myHTTPserver.onNotFound(handleNotFound); // When a client requests an unknown URI, call function "handleNotFound"
+
   
   Serial.println(String("Ready to connect using IP address: ") + WiFi.localIP());
   
@@ -103,7 +109,7 @@ void loop() {
   currentMillis = millis();
 
   controlRelays();
-  updateWebServer();
+  myHTTPserver.handleClient(); // Listen for HTTP requests from clients
   serviceOTA();
   
 }  // End of MAIN LOOP function
@@ -129,6 +135,21 @@ void controlRelays() {
     controlRelaysPreviousMillis += controlRelaysInterval;
   }
 }  // END OF CONTROLRELAYS function
+
+void handleRoot() { // When URI / is requested, send a web page with a button to toggle the LED
+  myHTTPserver.send(200, "text/html", "<form action=\"/LED\" method=\"POST\"><input type=\"submit\" value=\"Toggle LED\"></form>");
+}
+
+void handleLED() { // If a POST request is made to URI /LED
+  ledState = !ledState;
+  digitalWrite(LEDPIN, ledState);  // Flash LED
+  myHTTPserver.sendHeader("Location","/"); // Add a header to respond with a new location for the browser to go to the home page again
+  myHTTPserver.send(303); // Send it back to the browser with an HTTP status 303 (See Other) to redirect
+}
+
+void handleNotFound(){
+  myHTTPserver.send(404, "text/plain", "404: Not found"); // Send HTTP status 404 (Not Found) when there's no handler for the URI in the request
+}
 
 void updateWebServer() {
   if (currentMillis - webServerPreviousMillis >= webServerInterval) {  // Time to do the task
