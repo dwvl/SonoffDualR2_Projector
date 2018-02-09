@@ -38,7 +38,6 @@ byte ledState = LOW;  // for toggling the LED
 int webCommand = WEBCOMMANDNOTHING;    // command from http
 
 ESP8266WebServer myHTTPserver(80);  // Create a webserver object that listens for HTTP request on port 80
-// WiFiClient thingspeakClient;
 
 // ===== SETUP FUNCTION
 void setup() {
@@ -89,12 +88,6 @@ void setup() {
     else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
     else if (error == OTA_END_ERROR) Serial.println("End Failed");
   });
-
-    // server.on("/", HTTP_GET, [](){
-    //   server.sendHeader("Connection", "close");
-    //   server.send(200, "text/html", serverIndex);
-    //   server.send(200, "text/plain", (Update.hasError())?"FAIL":"OK");
-    // });
 
   myHTTPserver.on("/", HTTP_GET, handleRoot); // Call the 'handleRoot' function when a client requests URI "/"
   myHTTPserver.on("/LED", HTTP_ANY, [](){ // when any request is made to URI "/LED"
@@ -166,13 +159,14 @@ void redirectBrowserHome() {
 void handleRoot() { // When URI / is requested, send a web page with a button to toggle the LED
   myHTTPserver.send(200, "text/html", "<h1>Sonoff Dual R2 Projector Screen Controller</h1>"
   "<p>MAC address: " + WiFi.macAddress() + "</p>"
-  "<p>Free Heap RAM: " + ESP.getFreeHeap() + "</p>"
   "<p>Projector signals it's " + ((digitalRead(PROJECTORSIGNAL) == HIGH)?"ON":"OFF") + "</p>"
   "<p>Button is now " + ((digitalRead(BUTTONPIN) == LOW)?"Pushed":"Released") + "</p>"
   "<form action=\"/SCREEN=UP\" method=\"POST\"><input type=\"submit\" value=\"Screen Up\"></form>"
   "<form action=\"/SCREEN=STOP\" method=\"POST\"><input type=\"submit\" value=\"Screen STOP\"></form>"
   "<form action=\"/SCREEN=DOWN\" method=\"POST\"><input type=\"submit\" value=\"Screen Down\"></form>"
-  "<form action=\"/LED\" method=\"POST\"><input type=\"submit\" value=\"Toggle LED\"></form>");
+  "<br>"
+  "<form action=\"/LED\" method=\"POST\"><input type=\"submit\" value=\"Toggle LED\"></form>"
+  "<p><small>Free Heap RAM: " + ESP.getFreeHeap() + "</small></p>");
   webCommand = WEBCOMMANDNOTHING; // The default
 }
 
