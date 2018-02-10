@@ -14,12 +14,6 @@
 #define PROJECTORSIGNAL 9    // projector on GPIO9 (labelled Button 1 on internal header)
 #define BUTTON0 0  // spare button on GPIO0 (on internal header - used during reset)
 
-// READABILITY:
-#define WEBCOMMANDUP 1
-#define WEBCOMMANDDOWN 2
-#define WEBCOMMANDSTOP 0
-#define WEBCOMMANDNOTHING 3
-
 // ===== CONSTANTS
 const char ssid[]  = WIFI_SSID;  // assigned by the PLATFORMIO_BUILD_FLAGS environment variable
 const char password[] = WIFI_PASS;  // ----"-----
@@ -28,6 +22,10 @@ const int controlRelaysInterval = 100; // Acts quickly enough for http commands,
 const int OTAInterval = 500; // Handle OTA reflashing twice a second
 const int webServerInterval = 100;  // Quickly respond to web page request
 
+enum webCommandType {STOP, UP, DOWN, NOTHING};  // Possible HTTP commands to control screen
+enum motorStateType  // State machine for screen motor control 
+  {IDLE, DEBOUNCE_DOWN_COMMAND, MOTORING_DOWN, DEBOUNCE_UP_COMMAND, MOTORING_UP};
+
 // ===== VARIABLES
 unsigned long currentMillis = 0;    // stores the value of millis() in each iteration of loop()
 unsigned long controlRelaysPreviousMillis = 0;   // will store last time sensor was read
@@ -35,7 +33,7 @@ unsigned long OTAPreviousMillis = 0;   // will store last time OTA was handled
 unsigned long webServerPreviousMillis = 0;   // will store last time web page was handled
 
 byte ledState = LOW;  // for toggling the LED
-int webCommand = WEBCOMMANDNOTHING;    // command from http
+webCommandType webCommand = NOTHING;    // command from http
 
 ESP8266WebServer myHTTPserver(80);  // Create a webserver object that listens for HTTP request on port 80
 
@@ -89,21 +87,24 @@ void setup() {
     else if (error == OTA_END_ERROR) Serial.println("End Failed");
   });
 
-  myHTTPserver.on("/", HTTP_GET, handleRoot); // Call the 'handleRoot' function when a client requests URI "/"
+  myHTTPserver.on("/", HTTP_GET, [](){ // Call the 'handleRoot' function when a client requests URI "/"
+    webCommand = NOTHING; // The default
+    handleRoot();
+    });
   myHTTPserver.on("/LED", HTTP_ANY, [](){ // when any request is made to URI "/LED"
     toggleLED();
     redirectBrowserHome();
     });
   myHTTPserver.on("/SCREEN=UP", HTTP_ANY, [](){ // Call the 'handleScreenUp' function when any request is made to URI "/SCREEN=UP"
-    webCommand = WEBCOMMANDUP;
+    webCommand = UP;
     redirectBrowserHome();
     });
   myHTTPserver.on("/SCREEN=STOP", HTTP_ANY, [](){ // Call the 'handleScreenUp' function when any request is made to URI "/SCREEN=STOP"
-    webCommand = WEBCOMMANDSTOP;
+    webCommand = STOP;
     redirectBrowserHome();
     });
   myHTTPserver.on("/SCREEN=DOWN", HTTP_ANY, [](){ // Call the 'handleScreenUp' function when any request is made to URI "/SCREEN=DOWN"
-    webCommand = WEBCOMMANDDOWN;
+    webCommand = DOWN;
     redirectBrowserHome();
     });
   myHTTPserver.onNotFound( [](){
@@ -133,15 +134,15 @@ void controlRelays() {
   if (currentMillis - controlRelaysPreviousMillis >= controlRelaysInterval) {
 
     switch (webCommand) {
-      case WEBCOMMANDUP:
+      case UP:
         digitalWrite(RELAYL1PIN, HIGH);
         digitalWrite(RELAYL2PIN, LOW);
         break;
-      case WEBCOMMANDDOWN:
+      case DOWN:
         digitalWrite(RELAYL1PIN, LOW);
         digitalWrite(RELAYL2PIN, HIGH);
         break;
-      case WEBCOMMANDSTOP:
+      case STOP:
         digitalWrite(RELAYL1PIN, LOW);
         digitalWrite(RELAYL2PIN, LOW);
         break;
@@ -167,7 +168,6 @@ void handleRoot() { // When URI / is requested, send a web page with a button to
   "<br>"
   "<form action=\"/LED\" method=\"POST\"><input type=\"submit\" value=\"Toggle LED\"></form>"
   "<p><small>Free Heap RAM: " + ESP.getFreeHeap() + "</small></p>");
-  webCommand = WEBCOMMANDNOTHING; // The default
 }
 
 void toggleLED() {
