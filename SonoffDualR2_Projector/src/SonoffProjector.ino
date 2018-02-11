@@ -28,7 +28,8 @@ const int screenUpDurationMillis = 3000; // How long it takes for the screen to 
 
 enum webCommandType {STOP, UP, DOWN, NOTHING};  // Possible HTTP commands to control screen
 enum screenStateType  // State machine for screen motor control 
-  {STATIONARY_UP, DEBOUNCE_DOWN_COMMAND, MOTORING_DOWN, STATIONARY_DOWN, DEBOUNCE_UP_COMMAND, MOTORING_UP, STATIONARY_MIDDLE};
+  {STATIONARY_UP, MOTORING_DOWN, STATIONARY_DOWN, MOTORING_UP, STATIONARY_MIDDLE};
+enum controlModeType {PROJECTOR, HTTP}; // Either the projector hardware signal, or a web user is in control.
 
 // ===== VARIABLES
 unsigned long currentMillis = 0;    // stores the value of millis() in each iteration of loop()
@@ -43,8 +44,10 @@ byte ledState = LOW;  // for toggling the LED
 byte projectorSignalNow = LOW;  // currently-read signal from the projector
 byte projectorSignalLastRead = LOW;  // previously-read signal from the projector
 byte projectorSignal = LOW;  // the debounced signal from the projector.  LOW = off; HIGH = on.
+boolean hardwareSignalChanged = false;
 webCommandType webCommand = NOTHING;    // command from http - default to NOTHING
 screenStateType screenState = STATIONARY_UP;  // state machine controlling screen motor relays - default to UP
+controlModeType controlMode = PROJECTOR; // default to the projector hardware being in control
 
 ESP8266WebServer myHTTPserver(80);  // Create a webserver object that listens for HTTP request on port 80
 
@@ -135,22 +138,41 @@ void loop() {
 
   currentMillis = millis();
 
-  debounceProjectorSignal();
+  hardwareSignalChanged = debounceProjectorSignal(); // gets state of projector
+  updateWebServer(); // gets any HTTP commands
+
+  if (hardwareSignalChanged)  // the projector is being turned off or on
+  {
+    controlMode = PROJECTOR;
+  }
+  if (webCommand != NOTHING)  // somebody is controlling via the web
+  {
+    controlMode = HTTP;
+  }
+
   controlRelays();
-  updateWebServer();
   serviceOTA();
   
 }  // End of MAIN LOOP function
 
-void debounceProjectorSignal() {
+boolean debounceProjectorSignal() {
   if (currentMillis - debouncePreviousMillis >= debounceInterval) {
     projectorSignalNow = digitalRead(PROJECTORSIGNAL);
 
     if (projectorSignalNow == projectorSignalLastRead) { // signal is stable and debounced
+      if (projectorSignal == projectorSignalLastRead) // in fact, unchanged for a while
+      {
+        return false; // no sign of recent projector activity
+      }
+      else
+      {
+        return true; // projector has just been turned on or off
+      }
       projectorSignal = projectorSignalLastRead;  // so update projectorSignal
     }
     else {
       projectorSignalLastRead = projectorSignalNow;  // don't change projectorSignal, but remember current signal
+      return false; // unstable signal but might be just noise
     }
     debouncePreviousMillis += debounceInterval;
   }
