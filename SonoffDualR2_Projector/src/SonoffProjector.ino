@@ -18,25 +18,21 @@
 const char ssid[]  = WIFI_SSID;  // assigned by the PLATFORMIO_BUILD_FLAGS environment variable
 const char password[] = WIFI_PASS;  // ----"-----
 
-const int debounceInterval = 100; // Debounces projector signal hardware input
 const int controlRelaysInterval = 100; // Acts quickly enough for http commands, but also debounces signal.
 const int OTAInterval = 500; // Handle OTA reflashing twice a second
-const int webServerInterval = 100;  // Quickly respond to web page request
 
 const int screenDownDurationMillis = 2000; // How long it takes for the screen to wind all the way down
 const int screenUpDurationMillis = 3000; // How long it takes for the screen to wind all the way up
 
 enum webCommandType {STOP, UP, DOWN, NOTHING};  // Possible HTTP commands to control screen
+enum projectorCommandType {JUST_TURNED_ON, JUST_TURNED_OFF, NO_CHANGE};  // Possible projector commands to control screen
 enum screenStateType  // State machine for screen motor control 
   {STATIONARY_UP, MOTORING_DOWN, STATIONARY_DOWN, MOTORING_UP, STATIONARY_MIDDLE};
-enum controlModeType {PROJECTOR, HTTP}; // Either the projector hardware signal, or a web user is in control.
 
 // ===== VARIABLES
 unsigned long currentMillis = 0;    // stores the value of millis() in each iteration of loop()
-unsigned long debouncePreviousMillis = 0;   // will store last time projector signal read and debounce was done
 unsigned long controlRelaysPreviousMillis = 0;   // will store last time state machine was run
 unsigned long OTAPreviousMillis = 0;   // will store last time OTA was handled
-unsigned long webServerPreviousMillis = 0;   // will store last time web page was handled
 unsigned long screenDownStartMillis = 0;  // time when the down motor was turned on
 unsigned long screenUpStartMillis = 0;  // time when the up motor was turned on
 
@@ -47,7 +43,7 @@ byte projectorSignal = LOW;  // the debounced signal from the projector.  LOW = 
 boolean hardwareSignalChanged = false;
 webCommandType webCommand = NOTHING;    // command from http - default to NOTHING
 screenStateType screenState = STATIONARY_UP;  // state machine controlling screen motor relays - default to UP
-controlModeType controlMode = PROJECTOR; // default to the projector hardware being in control
+projectorCommandType projectorCommand = NO_CHANGE; // default to the projector being stable
 
 ESP8266WebServer myHTTPserver(80);  // Create a webserver object that listens for HTTP request on port 80
 
@@ -138,67 +134,48 @@ void loop() {
 
   currentMillis = millis();
 
-  hardwareSignalChanged = debounceProjectorSignal(); // gets state of projector
-  updateWebServer(); // gets any HTTP commands
-
-  if (hardwareSignalChanged)  // the projector is being turned off or on
-  {
-    controlMode = PROJECTOR;
-  }
-  if (webCommand != NOTHING)  // somebody is controlling via the web
-  {
-    controlMode = HTTP;
-  }
-
   controlRelays();
   serviceOTA();
   
 }  // End of MAIN LOOP function
 
-boolean debounceProjectorSignal() {
-  if (currentMillis - debouncePreviousMillis >= debounceInterval) {
-    projectorSignalNow = digitalRead(PROJECTORSIGNAL);
+projectorCommandType interpretProjectorSignal() { // debounces and detects confirmed edges on hardware signal
 
-    if (projectorSignalNow == projectorSignalLastRead) { // signal is stable and debounced
-      if (projectorSignal == projectorSignalLastRead) // in fact, unchanged for a while
-      {
-        return false; // no sign of recent projector activity
-      }
-      else
-      {
-        return true; // projector has just been turned on or off
-      }
-      projectorSignal = projectorSignalLastRead;  // so update projectorSignal
+  projectorSignalNow = digitalRead(PROJECTORSIGNAL);
+
+  if (projectorSignalNow == projectorSignalLastRead) { // signal is stable and debounced
+    if (projectorSignal == projectorSignalLastRead) // in fact, unchanged for a while
+    {
+      return NO_CHANGE; // no sign of recent projector activity
+    }
+    else // has just changed
+    if (HIGH == projectorSignalNow) {
+      return JUST_TURNED_ON; // projector has just been turned on
     }
     else {
-      projectorSignalLastRead = projectorSignalNow;  // don't change projectorSignal, but remember current signal
-      return false; // unstable signal but might be just noise
+      return JUST_TURNED_OFF; // projector has just been turned off
     }
-    debouncePreviousMillis += debounceInterval;
+    projectorSignal = projectorSignalLastRead;  // so update projectorSignal
+  }
+  else { // signal has just changed
+    projectorSignalLastRead = projectorSignalNow;  // don't change projectorSignal, but remember current signal
+    return NO_CHANGE; // unstable signal but might be just noise
   }
 }
 
 void controlRelays() {
   if (currentMillis - controlRelaysPreviousMillis >= controlRelaysInterval) {
 
+    // gather incoming commands here.  They're events, so must be acted up on immediately or they'll be lost...
+    projectorCommand = interpretProjectorSignal(); // gets state of projector
+    myHTTPserver.handleClient(); // Listen for HTTP requests from clients
+
     switch (screenState) {
       case STATIONARY_UP:
         digitalWrite(RELAYL1PIN, LOW);  // make sure both relays are off
         digitalWrite(RELAYL2PIN, LOW);
 
-        if (HIGH == projectorSignal) { // looks like projector has just turned on
-          screenState = DEBOUNCE_DOWN_COMMAND;
-        }
-        else if (DOWN == webCommand) {
-          screenDownStartMillis = currentMillis;  // remember what time the motor was turned on
-          screenState = MOTORING_DOWN;
-        }
-        break;
-      case DEBOUNCE_DOWN_COMMAND:  // we'll be in this state only this one execution 
-        if (LOW == projectorSignal) { // turns out it was just noise
-          screenState = STATIONARY_UP;
-        }
-        else {  // projector really is on
+        if ((JUST_TURNED_ON == projectorSignal) || (DOWN == webCommand)) {
           screenDownStartMillis = currentMillis;  // remember what time the motor was turned on
           screenState = MOTORING_DOWN;
         }
@@ -213,24 +190,16 @@ void controlRelays() {
         else if (STOP == webCommand) {
           screenState = STATIONARY_MIDDLE;
         }
+        else if ((JUST_TURNED_OFF == projectorSignal) || (UP == webCommand)) {
+          screenUpStartMillis = currentMillis;  // remember what time the motor was turned on
+          screenState = MOTORING_UP;
+        }
         break;
       case STATIONARY_DOWN:
         digitalWrite(RELAYL1PIN, LOW);  // make sure both relays are off
         digitalWrite(RELAYL2PIN, LOW);
 
-        if (LOW == projectorSignal) { // looks like projector has just turned off
-          screenState = DEBOUNCE_UP_COMMAND;
-        }
-        else if (UP == webCommand) {
-          screenUpStartMillis = currentMillis;  // remember what time the motor was turned on
-          screenState = MOTORING_UP;
-        }
-        break;
-      case DEBOUNCE_UP_COMMAND:  // we'll be in this state only this one execution 
-        if (HIGH == projectorSignal) { // turns out it was just noise
-          screenState = STATIONARY_DOWN;
-        }
-        else {  // projector really is off
+        if ((JUST_TURNED_OFF == projectorSignal) || (UP == webCommand)) {
           screenUpStartMillis = currentMillis;  // remember what time the motor was turned on
           screenState = MOTORING_UP;
         }
@@ -239,39 +208,29 @@ void controlRelays() {
         digitalWrite(RELAYL1PIN, HIGH); // going up...
         digitalWrite(RELAYL2PIN, LOW);
 
-        if (currentMillis - screenUpStartMillis >= screenUpDurationMillis) { // screen will be all the way up by now
+        if (currentMillis - screenUpStartMillis >= screenUpDurationMillis) { // screen will be all the way down by now
           screenState = STATIONARY_UP;
         }
         else if (STOP == webCommand) {
           screenState = STATIONARY_MIDDLE;
         }
+        else if ((JUST_TURNED_ON == projectorSignal) || (DOWN == webCommand)) {
+          screenDownStartMillis = currentMillis;  // remember what time the motor was turned on
+          screenState = MOTORING_DOWN;
+        }
         break;
-      case STATIONARY_MIDDLE: // this needs a re-think.  Presumably this state will be exited whether the projector is on OR off?!?
+      case STATIONARY_MIDDLE:
         digitalWrite(RELAYL1PIN, LOW);  // make sure both relays are off
         digitalWrite(RELAYL2PIN, LOW);
 
-        if (LOW == projectorSignal) { // looks like projector has just turned off
-          screenState = DEBOUNCE_UP_COMMAND;
+        if ((JUST_TURNED_ON == projectorSignal) || (DOWN == webCommand)) {
+          screenDownStartMillis = currentMillis;  // remember what time the motor was turned on
+          screenState = MOTORING_DOWN;
         }
-        else if (UP == webCommand) {
+        else if ((JUST_TURNED_OFF == projectorSignal) || (UP == webCommand)) {
           screenUpStartMillis = currentMillis;  // remember what time the motor was turned on
           screenState = MOTORING_UP;
         }
-        break;
-    }
-    
-    switch (webCommand) {
-      case UP:
-        digitalWrite(RELAYL1PIN, HIGH);
-        digitalWrite(RELAYL2PIN, LOW);
-        break;
-      case DOWN:
-        digitalWrite(RELAYL1PIN, LOW);
-        digitalWrite(RELAYL2PIN, HIGH);
-        break;
-      case STOP:
-        digitalWrite(RELAYL1PIN, LOW);
-        digitalWrite(RELAYL2PIN, LOW);
         break;
     }
 
@@ -301,14 +260,6 @@ void toggleLED() {
   ledState = !ledState;
   digitalWrite(LEDPIN, ledState);  // Invert LED
 }
-
-void updateWebServer() {
-  if (currentMillis - webServerPreviousMillis >= webServerInterval) {  // Time to do the task
-    myHTTPserver.handleClient(); // Listen for HTTP requests from clients
-
-    webServerPreviousMillis += webServerInterval;
-  }  // End of time to do the task
-}  // End of UpdateWebServer function
 
 void serviceOTA() {
   if (currentMillis - OTAPreviousMillis >= OTAInterval) {
