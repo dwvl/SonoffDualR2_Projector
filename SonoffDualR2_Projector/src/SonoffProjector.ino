@@ -208,7 +208,7 @@ void controlRelays() {
         digitalWrite(RELAYL1PIN, HIGH); // going up...
         digitalWrite(RELAYL2PIN, LOW);
 
-        if (currentMillis - screenUpStartMillis >= screenUpDurationMillis) { // screen will be all the way down by now
+        if (currentMillis - screenUpStartMillis >= screenUpDurationMillis) { // screen will be all the way up by now
           screenState = STATIONARY_UP;
         }
         else if (STOP == webCommand) {
