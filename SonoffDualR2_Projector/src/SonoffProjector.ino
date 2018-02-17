@@ -48,7 +48,8 @@ projectorCommandType projectorCommand = NO_CHANGE; // default to the projector b
 ESP8266WebServer myHTTPserver(80);  // Create a webserver object that listens for HTTP request on port 80
 
 // ===== SETUP FUNCTION
-void setup() {
+void setup()
+  {
   Serial.begin(115200);                   // Start serial coms @ 115200
   delay(10);                              // for some reason?
   Serial.println("Booting");
@@ -67,7 +68,8 @@ void setup() {
   WiFi.hostname("Sonoff-Projector");
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
-  while (WiFi.waitForConnectResult() != WL_CONNECTED) {
+  while (WiFi.waitForConnectResult() != WL_CONNECTED)
+  {
     Serial.println("Connection Failed! Rebooting...");
     delay(5000);
     ESP.restart();
@@ -130,52 +132,58 @@ void setup() {
 
 
 // ===== MAIN LOOP
-void loop() {
-
+void loop() 
+{
   currentMillis = millis();
 
   controlRelays();
   serviceOTA();
-  
 }  // End of MAIN LOOP function
 
-projectorCommandType interpretProjectorSignal() { // debounces and detects confirmed edges on hardware signal
-
+projectorCommandType interpretProjectorSignal() // debounces and detects confirmed edges on hardware signal
+{
   projectorSignalNow = digitalRead(PROJECTORSIGNAL);
 
-  if (projectorSignalNow == projectorSignalLastRead) { // signal is stable and debounced
+  if (projectorSignalNow == projectorSignalLastRead) 
+  { // signal is stable and debounced
     if (projectorSignal == projectorSignalLastRead) // in fact, unchanged for a while
     {
       return NO_CHANGE; // no sign of recent projector activity
     }
     else // has just changed
-    if (HIGH == projectorSignalNow) {
-      return JUST_TURNED_ON; // projector has just been turned on
-    }
-    else {
-      return JUST_TURNED_OFF; // projector has just been turned off
-    }
+      if (HIGH == projectorSignalNow)
+      {
+        return JUST_TURNED_ON; // projector has just been turned on
+      }
+      else
+      {
+        return JUST_TURNED_OFF; // projector has just been turned off
+      }
     projectorSignal = projectorSignalLastRead;  // so update projectorSignal
   }
-  else { // signal has just changed
+  else
+  { // signal has just changed
     projectorSignalLastRead = projectorSignalNow;  // don't change projectorSignal, but remember current signal
     return NO_CHANGE; // unstable signal but might be just noise
   }
 }
 
-void controlRelays() {
-  if (currentMillis - controlRelaysPreviousMillis >= controlRelaysInterval) {
-
+void controlRelays()  // this is the main state machine
+{
+  if (currentMillis - controlRelaysPreviousMillis >= controlRelaysInterval)
+  {
     // gather incoming commands here.  They're events, so must be acted up on immediately or they'll be lost...
     projectorCommand = interpretProjectorSignal(); // gets state of projector
     myHTTPserver.handleClient(); // Listen for HTTP requests from clients
 
-    switch (screenState) {
+    switch (screenState)
+    {
       case STATIONARY_UP:
         digitalWrite(RELAYL1PIN, LOW);  // make sure both relays are off
         digitalWrite(RELAYL2PIN, LOW);
 
-        if ((JUST_TURNED_ON == projectorSignal) || (DOWN == webCommand)) {
+        if ((JUST_TURNED_ON == projectorSignal) || (DOWN == webCommand))
+        {
           screenDownStartMillis = currentMillis;  // remember what time the motor was turned on
           screenState = MOTORING_DOWN;
         }
@@ -184,22 +192,26 @@ void controlRelays() {
         digitalWrite(RELAYL1PIN, LOW);
         digitalWrite(RELAYL2PIN, HIGH); // going down...
 
-        if (currentMillis - screenDownStartMillis >= screenDownDurationMillis) { // screen will be all the way down by now
+        if (currentMillis - screenDownStartMillis >= screenDownDurationMillis) // screen will be all the way down by now
+        {
           screenState = STATIONARY_DOWN;
         }
-        else if (STOP == webCommand) {
-          screenState = STATIONARY_MIDDLE;
-        }
-        else if ((JUST_TURNED_OFF == projectorSignal) || (UP == webCommand)) {
-          screenUpStartMillis = currentMillis;  // remember what time the motor was turned on
-          screenState = MOTORING_UP;
-        }
+        else if (STOP == webCommand)
+          {
+            screenState = STATIONARY_MIDDLE;
+          }
+          else if ((JUST_TURNED_OFF == projectorSignal) || (UP == webCommand))
+            {
+              screenUpStartMillis = currentMillis;  // remember what time the motor was turned on
+              screenState = MOTORING_UP;
+            }
         break;
       case STATIONARY_DOWN:
         digitalWrite(RELAYL1PIN, LOW);  // make sure both relays are off
         digitalWrite(RELAYL2PIN, LOW);
 
-        if ((JUST_TURNED_OFF == projectorSignal) || (UP == webCommand)) {
+        if ((JUST_TURNED_OFF == projectorSignal) || (UP == webCommand))
+        {
           screenUpStartMillis = currentMillis;  // remember what time the motor was turned on
           screenState = MOTORING_UP;
         }
@@ -208,29 +220,34 @@ void controlRelays() {
         digitalWrite(RELAYL1PIN, HIGH); // going up...
         digitalWrite(RELAYL2PIN, LOW);
 
-        if (currentMillis - screenUpStartMillis >= screenUpDurationMillis) { // screen will be all the way up by now
+        if (currentMillis - screenUpStartMillis >= screenUpDurationMillis) // screen will be all the way up by now
+        {
           screenState = STATIONARY_UP;
         }
-        else if (STOP == webCommand) {
-          screenState = STATIONARY_MIDDLE;
-        }
-        else if ((JUST_TURNED_ON == projectorSignal) || (DOWN == webCommand)) {
-          screenDownStartMillis = currentMillis;  // remember what time the motor was turned on
-          screenState = MOTORING_DOWN;
-        }
+        else if (STOP == webCommand)
+          {
+            screenState = STATIONARY_MIDDLE;
+          }
+          else if ((JUST_TURNED_ON == projectorSignal) || (DOWN == webCommand))
+            {
+              screenDownStartMillis = currentMillis;  // remember what time the motor was turned on
+              screenState = MOTORING_DOWN;
+            }
         break;
       case STATIONARY_MIDDLE:
         digitalWrite(RELAYL1PIN, LOW);  // make sure both relays are off
         digitalWrite(RELAYL2PIN, LOW);
 
-        if ((JUST_TURNED_ON == projectorSignal) || (DOWN == webCommand)) {
+        if ((JUST_TURNED_ON == projectorSignal) || (DOWN == webCommand))
+        {
           screenDownStartMillis = currentMillis;  // remember what time the motor was turned on
           screenState = MOTORING_DOWN;
         }
-        else if ((JUST_TURNED_OFF == projectorSignal) || (UP == webCommand)) {
-          screenUpStartMillis = currentMillis;  // remember what time the motor was turned on
-          screenState = MOTORING_UP;
-        }
+        else if ((JUST_TURNED_OFF == projectorSignal) || (UP == webCommand))
+          {
+            screenUpStartMillis = currentMillis;  // remember what time the motor was turned on
+            screenState = MOTORING_UP;
+          }
         break;
     }
 
@@ -238,12 +255,14 @@ void controlRelays() {
   }
 }  // END OF CONTROLRELAYS function
 
-void redirectBrowserHome() {
+void redirectBrowserHome()
+{
     myHTTPserver.sendHeader("Location","/"); // Add a header to respond with a new location for the browser to go to the home page again
     myHTTPserver.send(303); // Send it back to the browser with an HTTP status 303 (See Other) to redirect
 }
 
-void handleRoot() { // When URI / is requested, send a web page with a button to toggle the LED
+void handleRoot() // When URI / is requested, send a web page with a button to toggle the LED
+{
   myHTTPserver.send(200, "text/html", "<h1>Sonoff Dual R2 Projector Screen Controller</h1>"
   "<p>MAC address: " + WiFi.macAddress() + "</p>"
   "<p>Projector signals it's " + ((digitalRead(PROJECTORSIGNAL) == HIGH)?"ON":"OFF") + "</p>"
@@ -256,14 +275,16 @@ void handleRoot() { // When URI / is requested, send a web page with a button to
   "<p><small>Free Heap RAM: " + ESP.getFreeHeap() + "</small></p>");
 }
 
-void toggleLED() {
+void toggleLED()
+{
   ledState = !ledState;
   digitalWrite(LEDPIN, ledState);  // Invert LED
 }
 
-void serviceOTA() {
-  if (currentMillis - OTAPreviousMillis >= OTAInterval) {
-
+void serviceOTA()
+{
+  if (currentMillis - OTAPreviousMillis >= OTAInterval)
+  {
     toggleLED();
     ArduinoOTA.handle();
 
